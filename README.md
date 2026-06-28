@@ -13,8 +13,9 @@ Codor was born out of necessity. During a critical production server failure wit
 ## How Secrets Stay Safe 🔒
 
 Unlike typical cloud-based AI assistants that require full access to your environment variables and keys, Codor uses a **Context-Isolated Vault Architecture**:
-* **OS Keychain Storage**: Secrets (vault credentials and your API key) are stored in the operating system's native keychain — macOS Keychain, Windows Credential Manager, or the Linux Secret Service. They are **never** written to the SQLite database in plaintext.
-* **Metadata Masking**: The Large Language Model (LLM) only sees the descriptive metadata of a credential (e.g., *"[ID: staging-srv] Staging Server"*). It never sees your actual passwords, SSH keys, or API tokens. The secret never even crosses into the JavaScript layer — it is read directly inside the Rust backend at execution time.
+* **General-Purpose Secret Vault**: Each vault entry can be *any* secret — an SSH password, AWS/GCP keys, an API token, a connection string — described in plain text. The agent reads the description to decide how to use it; it is not limited to SSH targets.
+* **OS Keychain Storage**: Secrets are stored in the operating system's native keychain — macOS Keychain, Windows Credential Manager, or the Linux Secret Service. They are **never** written to the SQLite database in plaintext. (Debug/development builds use a local file in the app data directory to avoid repeated keychain prompts; shipped release builds always use the keychain.)
+* **Metadata Masking + Secret Injection**: The Large Language Model (LLM) only sees a credential's metadata (e.g., *"[ID: staging-srv] Staging Server root password"*). To use a secret in a command, the model writes a `{{secret:ID}}` placeholder; the Rust backend substitutes the real value at execution time. The secret never enters the model's context and never crosses into the JavaScript layer.
 * **Human-in-the-Loop Execution**: By default, every command the agent proposes must be explicitly approved by you before it runs. You can opt into "autopilot" per session.
 * **Zero Cloud Leakage**: Your configuration stays on your machine. No secrets ever touch third-party cloud database servers.
 
@@ -41,14 +42,15 @@ Codor connects to your preferred language models. You can enter your API keys in
 
 Once you launch the app, follow this workflow to get started:
 
-1. **Add a Server to the Vault**:
-   Go to the **Vault** tab, click **Add Credential**, and define a label (e.g., `production-db`) and the connection details (e.g., `admin@192.168.1.50` or a secure token).
+1. **Add a Secret to the Vault**:
+   Go to the **Vault** tab, click **Add Credential**, give it a name, paste the secret (an SSH password, an API key, cloud credentials, …), and **describe what it is and how it should be used** in the description field — for example: *"Root SSH password for the OVH server at 1.2.3.4."* The agent relies on that description.
+   > For password-based SSH the host needs `sshpass` available (`brew install hudochenkov/sshpass/sshpass` on macOS). Key-based SSH needs no secret at all.
 2. **Set up Command Filters**:
    Go to **Settings -> Safety** and verify your blocked patterns.
 3. **Connect and Ask**:
    Open a **New Chat**, and ask the agent:
-   > *"Check the disk space on server production-db"*
-   The agent will identify the server ID, invoke the secure SSH handler, and print the output.
+   > *"Check the disk space on my OVH server"*
+   The agent writes the command (injecting the secret via a `{{secret:ID}}` placeholder), you approve it, and Codor runs it and prints the output.
 
 ---
 

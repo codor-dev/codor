@@ -21,7 +21,7 @@ export default function About() {
           <h1 className="text-3xl font-extrabold tracking-tight text-foreground flex items-center justify-center gap-2">
             {t("appName")}
             <span className="text-xs font-mono font-semibold px-2 py-0.5 rounded-full bg-primary/10 border border-primary/20 text-primary self-center">
-              v0.2.0
+              v0.2.1
             </span>
           </h1>
           <p className="text-sm text-muted-foreground max-w-md mx-auto leading-relaxed">

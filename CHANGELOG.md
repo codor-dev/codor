@@ -4,6 +4,27 @@ All notable changes to Codor are documented here. This project follows
 [Semantic Versioning](https://semver.org/) and the format of
 [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.2.1] - 2026-06-28
+
+### Changed
+- **Vault is now a general-purpose secret store.** Each entry can hold any secret
+  (SSH password, AWS/GCP keys, API tokens, connection strings, …) described in
+  free text — it is no longer restricted to an SSH `user@host` target. The agent
+  reads each secret's description to decide how to use it.
+- **Secret injection via placeholders.** The model never sees secret values; it
+  writes `{{secret:ID}}` wherever a value belongs and the Rust backend substitutes
+  the real value from the secret store at execution time. Commands run on the
+  local machine, so remote servers are reached with `ssh`/`sshpass` and cloud
+  providers via their CLIs with credentials injected. Errors never echo the
+  resolved command or secret value.
+
+### Fixed
+- **No more keychain prompts during development.** Debug builds store secrets in a
+  JSON file inside the app data directory instead of the OS keychain, because each
+  `tauri dev` rebuild changes the code signature and made macOS re-prompt for
+  keychain access. Release builds are unaffected and continue to use the OS
+  keychain.
+
 ## [0.2.0] - 2026-06-28
 
 A security-focused release. The previous "secure" claims are now actually

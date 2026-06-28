@@ -85,7 +85,6 @@ export function useCodorRuntime(chatId: string | null) {
         } else {
           result = await invoke<string>("execute_ai_command", {
             command: args.command,
-            credentialId: args.credential_id,
           });
         }
       } catch (e: any) {
@@ -158,8 +157,17 @@ export function useCodorRuntime(chatId: string | null) {
 
       const systemPrompt = `You are Codor, an elite AI Infrastructure Agent running inside a secure desktop app.
 ${userCtx ? `\nUser custom instructions:\n${userCtx}\n` : ""}
-Secure vault credentials available (you NEVER see the actual secrets — use IDs in tool calls):
+Commands you run with execute_command are executed on the USER'S LOCAL MACHINE through the system shell. To act on a remote server you write an SSH command; to use a cloud provider you call its CLI (aws, gcloud, az, kubectl, docker, ...) directly.
+
+Secure vault available — each entry is an arbitrary secret (an SSH password, an AWS key, a GCP service-account token, an API key, a connection string, anything). The description tells you what each secret is and how it is meant to be used. You NEVER see the secret value:
 ${vaultCtx || "No credentials configured yet."}
+
+USING SECRETS: Insert the placeholder {{secret:ID}} wherever a secret's value belongs in a command. Codor substitutes the real value securely at execution time. Examples:
+- SSH with a password: sshpass -p {{secret:ID}} ssh -o StrictHostKeyChecking=accept-new user@host 'df -h'
+- SSH with a key (no secret needed): ssh user@host 'df -h'
+- AWS: AWS_ACCESS_KEY_ID={{secret:ID1}} AWS_SECRET_ACCESS_KEY={{secret:ID2}} aws s3 ls
+- GCP: read the description for whether to set GOOGLE_APPLICATION_CREDENTIALS, run gcloud auth, etc.
+Never print a secret's value, and never try to echo or cat it back to the user.
 
 ${activeSkills.length > 0 ? `Active DevOps Specializations & Guidelines:\n${skillsCtx}\n` : ""}
 
@@ -167,7 +175,7 @@ CRITICAL SAFETY & BACKUP DIRECTIVES:
 1. MANDATORY BACKUPS: Before modifying, overwriting, or deleting critical files/configs or performing database updates, YOU MUST create a backup copy first using the create_backup tool.
 2. RESIST DANGEROUS COMMANDS: If a command is destructive or hazardous (e.g., recursive deletion \`rm -rf\`, disk formatting \`mkfs\`, dropping databases, shutting down production services), RESIST executing it immediately. Explain the risks clearly and require explicit user confirmation before proceeding.
 
-When the user requests server operations, call execute_command with the matching credential ID and a precise bash command. Analyze output before summarizing.`;
+Analyze command output before summarizing for the user.`;
 
       const openai = new OpenAI({
         baseURL: "https://openrouter.ai/api/v1",
@@ -214,14 +222,13 @@ When the user requests server operations, call execute_command with the matching
               type: "function",
               function: {
                 name: "execute_command",
-                description: "Execute a bash command on a configured remote server or local environment.",
+                description: "Run a shell command on the user's local machine. To use a vault secret, insert the placeholder {{secret:ID}} wherever the secret value belongs — it is substituted securely at execution time and you never see the value. Remote servers are reached by writing an ssh/sshpass command; cloud CLIs (aws, gcloud, az) are run directly with their credentials injected via placeholders.",
                 parameters: {
                   type: "object",
                   properties: {
-                    credential_id: { type: "string", description: "ID of the vault credential to use" },
-                    command: { type: "string", description: "Exact bash command to run" },
+                    command: { type: "string", description: "Exact shell command to run. Reference vault secrets as {{secret:ID}}." },
                   },
-                  required: ["credential_id", "command"],
+                  required: ["command"],
                 },
               },
             },
