@@ -13,9 +13,10 @@ Codor was born out of necessity. During a critical production server failure wit
 ## How Secrets Stay Safe 🔒
 
 Unlike typical cloud-based AI assistants that require full access to your environment variables and keys, Codor uses a **Context-Isolated Vault Architecture**:
-* **Metadata Masking**: The Large Language Model (LLM) only sees the descriptive metadata of a credential (e.g., *"[ID: staging-srv] Staging Server"*). It never sees your actual passwords, SSH keys, or API tokens.
-* **Rust-Secure Execution**: When a command needs to be executed, the secure Tauri Rust backend retrieves the credential locally from your SQLite database, establishes the SSH connection, runs the command, and returns the output to the LLM. 
-* **Zero Cloud Leakage**: Your credentials and configuration are saved in a local SQLite database on your machine. No data or secrets ever touch third-party cloud database servers.
+* **OS Keychain Storage**: Secrets (vault credentials and your API key) are stored in the operating system's native keychain — macOS Keychain, Windows Credential Manager, or the Linux Secret Service. They are **never** written to the SQLite database in plaintext.
+* **Metadata Masking**: The Large Language Model (LLM) only sees the descriptive metadata of a credential (e.g., *"[ID: staging-srv] Staging Server"*). It never sees your actual passwords, SSH keys, or API tokens. The secret never even crosses into the JavaScript layer — it is read directly inside the Rust backend at execution time.
+* **Human-in-the-Loop Execution**: By default, every command the agent proposes must be explicitly approved by you before it runs. You can opt into "autopilot" per session.
+* **Zero Cloud Leakage**: Your configuration stays on your machine. No secrets ever touch third-party cloud database servers.
 
 ---
 
@@ -23,7 +24,7 @@ Unlike typical cloud-based AI assistants that require full access to your enviro
 
 1. **Local-First Architecture**: Your conversation history, settings, and credentials are saved in a secure local SQLite database.
 2. **DevOps Specialization Skills**: Inject custom guidelines and context for Docker, GCP, Kubernetes, and database operations dynamically into the prompt.
-3. **Active Safety Command Filters**: Intercepts dangerous commands (like `rm -rf`, `mkfs`, fork bombs) directly in the secure Rust backend before execution.
+3. **Manual Approval + Safety Command Filters**: Every command requires explicit user approval by default. As a secondary, fail-closed safety net, the Rust backend also blocks known-dangerous patterns (like `rm -rf`, `mkfs`, fork bombs) before execution. The filter is a best-effort deny-list, **not** a substitute for the approval gate.
 4. **Automated Cross-Platform Backups**: Automatically compresses target files/folders into gzip archives before modifications using native Rust libraries.
 5. **Real-Time Token Tracking**: Displays token usage inside a live SVG progress ring, reminding you to compact history when context gets full.
 
@@ -58,9 +59,8 @@ You can download pre-built installers for macOS and Windows from the [Releases](
 ### 🛡️ Why Trust Codor?
 * **Local-First & Audit-Ready**: Because Codor is open-source and operates 100% locally, you can inspect the code, audit the network traffic, and verify that no credentials ever leave your machine.
 * **Run from Source**: If you prefer not to use our pre-built installers, you can easily build the binary from source in less than two minutes (see [Local Development](#-local-development) below).
-* **Unsigned Installer Bypass**: Because we do not use paid corporate developer certificates, your OS will display a standard warning when running the installer:
-  - **macOS**: Right-click Codor in your Applications folder and select **Open**, or run: `xattr -cr /Applications/Codor.app`.
-  - **Windows**: Click **More info** on the SmartScreen prompt, then click **Run anyway**.
+* **Signed & Notarized on macOS**: macOS builds are code-signed with an Apple Developer ID and notarized by Apple, so they open without security warnings.
+* **Windows SmartScreen**: Windows builds are not yet code-signed. On first run, click **More info** on the SmartScreen prompt, then **Run anyway**.
 
 ---
 
@@ -91,7 +91,7 @@ To run Codor locally on your system, ensure you have **Node.js** (LTS) and the *
 
 * **Frontend**: React, TypeScript, Tailwind CSS, Lucide icons, Vite.
 * **Backend**: Tauri (Rust), native OS shell interface, SSH agent integrations.
-* **Storage**: Tauri Plugin SQL with SQLite.
+* **Storage**: SQLite (history, settings, metadata) via Tauri Plugin SQL; OS keychain for secrets.
 
 ---
 

@@ -1,6 +1,48 @@
 import Database from '@tauri-apps/plugin-sql';
+import { invoke } from '@tauri-apps/api/core';
 
 let dbInstance: Database | null = null;
+
+// --- Secret storage (OS keychain via Rust) -------------------------------
+// Secrets are never persisted in SQLite. They live in the OS keychain and are
+// only read back into Rust at execution time. The `openrouter_key` setting and
+// every vault credential's secret are stored under their own keychain entry.
+
+export async function setSecret(key: string, value: string): Promise<void> {
+  await invoke('vault_set_secret', { key, value });
+}
+
+export async function getSecret(key: string): Promise<string> {
+  return await invoke<string>('vault_get_secret', { key });
+}
+
+export async function deleteSecret(key: string): Promise<void> {
+  await invoke('vault_delete_secret', { key });
+}
+
+// One-time migration: move any secrets that older versions stored in plaintext
+// SQLite into the OS keychain, then blank them out of the database.
+async function migratePlaintextSecrets(db: Database): Promise<void> {
+  try {
+    const creds = await db.select<{ id: string; secret_value: string | null }[]>(
+      "SELECT id, secret_value FROM vault_credentials WHERE secret_value IS NOT NULL AND secret_value != ''"
+    );
+    for (const c of creds) {
+      await setSecret(c.id, c.secret_value as string);
+      await db.execute("UPDATE vault_credentials SET secret_value = '' WHERE id = $1", [c.id]);
+    }
+
+    const keyRows = await db.select<{ value: string }[]>(
+      "SELECT value FROM settings WHERE key = 'openrouter_key' AND value IS NOT NULL AND value != ''"
+    );
+    if (keyRows.length > 0) {
+      await setSecret('openrouter_key', keyRows[0].value);
+      await db.execute("DELETE FROM settings WHERE key = 'openrouter_key'");
+    }
+  } catch (e) {
+    console.error('Secret migration skipped:', e);
+  }
+}
 
 export async function getDb(): Promise<Database> {
   if (dbInstance) return dbInstance;
@@ -113,6 +155,8 @@ export async function getDb(): Promise<Database> {
       }
     }
 
+    await migratePlaintextSecrets(dbInstance);
+
     return dbInstance;
   } catch (e) {
     console.error("CRITICAL SECURITY ERROR: Failed to load secure SQLite database:", e);
@@ -190,29 +234,43 @@ export async function setSetting(key: string, value: string) {
   await db.execute('INSERT OR REPLACE INTO settings (key, value) VALUES ($1, $2)', [key, value]);
 }
 
+// The API key is a secret and lives in the OS keychain, not in SQLite.
+export async function getApiKey(): Promise<string> {
+  return await getSecret('openrouter_key');
+}
+
+export async function setApiKey(value: string): Promise<void> {
+  await setSecret('openrouter_key', value);
+}
+
 export interface VaultCredential {
   id: string;
   name: string;
   llm_description: string;
-  secret_value: string;
+  // Only present when creating a credential. It is written to the OS keychain
+  // and never read back into JS — listings omit it.
+  secret_value?: string;
 }
 
 export async function getVaultCredentials(): Promise<VaultCredential[]> {
   const db = await getDb();
-  return await db.select<VaultCredential[]>('SELECT id, name, llm_description, secret_value FROM vault_credentials ORDER BY created_at ASC');
+  return await db.select<VaultCredential[]>('SELECT id, name, llm_description FROM vault_credentials ORDER BY created_at ASC');
 }
 
 export async function addVaultCredential(cred: VaultCredential) {
   const db = await getDb();
+  // Secret goes to the OS keychain; only metadata is persisted in SQLite.
+  await setSecret(cred.id, cred.secret_value ?? '');
   await db.execute(
     'INSERT INTO vault_credentials (id, name, llm_description, secret_value, created_at) VALUES ($1, $2, $3, $4, $5)',
-    [cred.id, cred.name, cred.llm_description, cred.secret_value, Date.now()]
+    [cred.id, cred.name, cred.llm_description, '', Date.now()]
   );
 }
 
 export async function deleteVaultCredential(id: string) {
   const db = await getDb();
   await db.execute('DELETE FROM vault_credentials WHERE id = $1', [id]);
+  await deleteSecret(id);
 }
 
 export interface CommandFilter {

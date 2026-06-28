@@ -18,12 +18,14 @@ interface Model {
 
 export default function ChatPage({ chatId }: ChatProps) {
   const { t } = useI18n();
-  const { messages, setMessages, isRunning, loadHistory, runAgentLoop, stopExecution } = useCodorRuntime(chatId);
+  const { messages, setMessages, isRunning, pendingApproval, loadHistory, runAgentLoop, approveToolCall, rejectToolCall, stopExecution } = useCodorRuntime(chatId);
   const [input, setInput] = useState("");
   const [models, setModels] = useState<Model[]>([]);
   const [selectedModel, setSelectedModel] = useState("deepseek/deepseek-v4-flash");
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
-  const [autopilot, setAutopilot] = useState(true);
+  // Default to manual approval: every command requires explicit user sign-off
+  // before it runs. Users can opt into autopilot per session.
+  const [autopilot, setAutopilot] = useState(false);
 
   // Model search state
   const [modelSearch, setModelSearch] = useState("");
@@ -86,7 +88,7 @@ export default function ChatPage({ chatId }: ChatProps) {
     await saveMessage(chatId, userMsg);
     if (messages.length <= 1) await updateChatTitle(chatId, content.slice(0, 30) + "...");
 
-    runAgentLoop(updated, selectedModel);
+    runAgentLoop(updated, selectedModel, autopilot);
   }
 
   async function handleCompact() {
@@ -147,7 +149,7 @@ export default function ChatPage({ chatId }: ChatProps) {
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-6 space-y-6">
-        {messages.map((msg, idx) => {
+        {messages.map((msg) => {
           const isToolCall = msg.toolCalls && msg.toolCalls.length > 0;
           const isToolResult = msg.role === "tool" || (msg.role === "system" && msg.content.includes("Tool Output:"));
 
@@ -195,12 +197,12 @@ export default function ChatPage({ chatId }: ChatProps) {
                     {cmdText}
                   </div>
 
-                  {!autopilot && idx === messages.length - 1 && !isRunning && (
+                  {pendingApproval?.toolCall.id === msg.toolCalls![0].id && !isRunning && (
                     <div className="px-3 py-2 border-t border-border bg-muted/20 flex items-center gap-2">
-                      <button onClick={() => runAgentLoop([...messages, { id: Date.now().toString(), role: "system", content: "User approved command execution." }], selectedModel)} className="bg-primary text-primary-foreground px-3 py-1.5 rounded text-[11px] font-bold hover:opacity-90 transition-opacity cursor-pointer shadow-sm">
+                      <button onClick={() => approveToolCall()} className="bg-primary text-primary-foreground px-3 py-1.5 rounded text-[11px] font-bold hover:opacity-90 transition-opacity cursor-pointer shadow-sm">
                         {t("approveCall")}
                       </button>
-                      <button onClick={() => setMessages([...messages, { id: Date.now().toString(), role: "system", content: "❌ Command execution rejected by user." }])} className="bg-muted hover:bg-accent hover:text-foreground text-muted-foreground px-3 py-1.5 rounded text-[11px] font-semibold transition-colors cursor-pointer border border-border">
+                      <button onClick={() => rejectToolCall()} className="bg-muted hover:bg-accent hover:text-foreground text-muted-foreground px-3 py-1.5 rounded text-[11px] font-semibold transition-colors cursor-pointer border border-border">
                         {t("rejectCall")}
                       </button>
                     </div>

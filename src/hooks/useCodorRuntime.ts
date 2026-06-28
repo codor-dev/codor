@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import OpenAI from "openai";
 import { useCallback, useRef, useState } from "react";
-import { addBackupRecord, getMessages, getSetting, getSkills, getVaultCredentials, saveMessage } from "../db";
+import { addBackupRecord, getApiKey, getMessages, getSetting, getSkills, getVaultCredentials, saveMessage } from "../db";
 import { useI18n } from "../i18n";
 
 export type CodorMessage = {
@@ -14,10 +14,23 @@ export type CodorMessage = {
   isLoading?: boolean;
 };
 
+// Hard cap on consecutive tool-call iterations to prevent a runaway agent loop
+// from hanging the UI or burning through API credits.
+const MAX_ITERATIONS = 25;
+
+type PendingTool = {
+  toolCall: { id: string; name: string; arguments: string };
+  baseMessages: CodorMessage[];
+  model: string;
+};
+
 export function useCodorRuntime(chatId: string | null) {
   const { t } = useI18n();
   const [messages, setMessages] = useState<CodorMessage[]>([]);
   const [isRunning, setIsRunning] = useState(false);
+  // When set, execution is paused waiting for the user to approve/reject a tool
+  // call. Nothing runs until they act (manual mode).
+  const [pendingApproval, setPendingApproval] = useState<PendingTool | null>(null);
   const chatIdRef = useRef(chatId);
   chatIdRef.current = chatId;
 
@@ -43,15 +56,82 @@ export function useCodorRuntime(chatId: string | null) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
     }
+    setPendingApproval(null);
     setIsRunning(false);
   }, []);
 
-  const runAgentLoop = useCallback(
-    async (currentMessages: CodorMessage[], selectedModel: string) => {
-      if (!chatIdRef.current) return;
+  // Actually dispatch a tool call to the Rust backend, append the result, and
+  // continue the agent loop. The secret never crosses into JS — Rust reads it
+  // from the keychain using the credential id.
+  const executeToolCall = useCallback(
+    async (pending: PendingTool, autopilot: boolean, iteration: number) => {
+      const { toolCall, baseMessages, model } = pending;
       setIsRunning(true);
 
-      const apiKey = await getSetting("openrouter_key");
+      let result = "";
+      try {
+        const args = JSON.parse(toolCall.arguments || "{}");
+        if (toolCall.name === "create_backup") {
+          try {
+            const filepath = await invoke<string>("execute_backup", {
+              originalPath: args.original_path,
+              description: args.description,
+            });
+            await addBackupRecord(filepath, args.original_path, args.description);
+            result = `✅ Backup created successfully at: ${filepath}`;
+          } catch (e: any) {
+            result = `❌ Backup failed: ${e}`;
+          }
+        } else {
+          result = await invoke<string>("execute_ai_command", {
+            command: args.command,
+            credentialId: args.credential_id,
+          });
+        }
+      } catch (e: any) {
+        result = `Error: ${e}`;
+      }
+
+      const toolResultMsg: CodorMessage = {
+        id: (Date.now() + 1).toString(),
+        role: "tool",
+        toolCallId: toolCall.id,
+        content: result,
+      };
+
+      const nextHistory = [...baseMessages, toolResultMsg];
+      setMessages(nextHistory);
+      await saveMessage(chatIdRef.current!, toolResultMsg);
+
+      await runAgentLoop(nextHistory, model, autopilot, iteration + 1);
+    },
+    []
+  );
+
+  const runAgentLoop = useCallback(
+    async (
+      currentMessages: CodorMessage[],
+      selectedModel: string,
+      autopilot: boolean,
+      iteration: number = 0
+    ) => {
+      if (!chatIdRef.current) return;
+
+      if (iteration >= MAX_ITERATIONS) {
+        const capMsg: CodorMessage = {
+          id: Date.now().toString(),
+          role: "system",
+          content: `⚠️ Reached the maximum of ${MAX_ITERATIONS} consecutive tool calls. Stopping to avoid a runaway loop. Send a new message to continue.`,
+        };
+        setMessages((p) => [...p, capMsg]);
+        await saveMessage(chatIdRef.current!, capMsg);
+        setIsRunning(false);
+        return;
+      }
+
+      setIsRunning(true);
+
+      const apiKey = await getApiKey();
       if (!apiKey) {
         const err: CodorMessage = {
           id: Date.now().toString(),
@@ -216,64 +296,33 @@ When the user requests server operations, call execute_command with the matching
         // Clean up controller
         abortControllerRef.current = null;
 
-        // If it was a tool call, run it
+        // If it was a tool call, decide whether to run it.
         if (toolCallId) {
+          const toolCall = { id: toolCallId, name: toolCallName, arguments: toolCallArgs };
           const finalToolCallMsg: CodorMessage = {
             id: Date.now().toString(),
             role: "assistant",
             content: contentText,
             reasoning: reasoningText,
-            toolCalls: [{ id: toolCallId, name: toolCallName, arguments: toolCallArgs }],
+            toolCalls: [toolCall],
           };
 
-          // Save the assistant message with tool calls
+          // Save the assistant message with tool calls and pin its DB id.
           await saveMessage(chatIdRef.current!, finalToolCallMsg);
+          setMessages((p) => p.map((m) => (m.id === tempMsgId ? finalToolCallMsg : m)));
 
-          // Update message list to use static database ID
-          setMessages((p) => p.map(m => m.id === tempMsgId ? finalToolCallMsg : m));
+          const baseMessages = [...currentMessages, finalToolCallMsg];
+          const pending: PendingTool = { toolCall, baseMessages, model: selectedModel };
 
-          let result = "";
-          try {
-            const args = JSON.parse(toolCallArgs);
-            if (toolCallName === "create_backup") {
-              try {
-                const filepath = await invoke<string>("execute_backup", {
-                  originalPath: args.original_path,
-                  description: args.description,
-                });
-                await addBackupRecord(filepath, args.original_path, args.description);
-                result = `✅ Backup created successfully at: ${filepath}`;
-              } catch (e: any) {
-                result = `❌ Backup failed: ${e}`;
-              }
-            } else {
-              const allCreds = await getVaultCredentials();
-              const matched = allCreds.find((c) => c.id === args.credential_id);
-              const secretValue = matched ? matched.secret_value : "";
-
-              result = await invoke<string>("execute_ai_command", {
-                command: args.command,
-                serverId: args.credential_id,
-                secretValue,
-              });
-            }
-          } catch (e: any) {
-            result = `Error: ${e}`;
+          if (autopilot) {
+            // Autopilot: run immediately, no human gate.
+            await executeToolCall(pending, autopilot, iteration);
+          } else {
+            // Manual: STOP and wait for the user to approve/reject. Nothing is
+            // executed until approveToolCall is called.
+            setPendingApproval(pending);
+            setIsRunning(false);
           }
-
-          const toolResultMsg: CodorMessage = {
-            id: (Date.now() + 1).toString(),
-            role: "tool",
-            toolCallId,
-            content: result,
-          };
-
-          const nextHistory = [...currentMessages, finalToolCallMsg, toolResultMsg];
-          setMessages(nextHistory);
-          await saveMessage(chatIdRef.current!, toolResultMsg);
-
-          // Continue loop
-          await runAgentLoop(nextHistory, selectedModel);
         } else {
           // Normal message response complete
           const finalMsg: CodorMessage = {
@@ -301,8 +350,45 @@ When the user requests server operations, call execute_command with the matching
         setIsRunning(false);
       }
     },
-    []
+    [t, executeToolCall]
   );
 
-  return { messages, setMessages, isRunning, loadHistory, runAgentLoop, stopExecution };
+  // Called when the user clicks "Approve Execution" in manual mode.
+  const approveToolCall = useCallback(async () => {
+    if (!pendingApproval) return;
+    const pending = pendingApproval;
+    setPendingApproval(null);
+    await executeToolCall(pending, false, 0);
+  }, [pendingApproval, executeToolCall]);
+
+  // Called when the user clicks "Reject". Feeds a rejection back to the model so
+  // it can react, without ever running the command.
+  const rejectToolCall = useCallback(async () => {
+    if (!pendingApproval) return;
+    const pending = pendingApproval;
+    setPendingApproval(null);
+
+    const rejectionMsg: CodorMessage = {
+      id: (Date.now() + 1).toString(),
+      role: "tool",
+      toolCallId: pending.toolCall.id,
+      content: "❌ Command execution rejected by the user. Do not retry it; ask how to proceed instead.",
+    };
+    const nextHistory = [...pending.baseMessages, rejectionMsg];
+    setMessages(nextHistory);
+    await saveMessage(chatIdRef.current!, rejectionMsg);
+    await runAgentLoop(nextHistory, pending.model, false, 0);
+  }, [pendingApproval, runAgentLoop]);
+
+  return {
+    messages,
+    setMessages,
+    isRunning,
+    pendingApproval,
+    loadHistory,
+    runAgentLoop,
+    approveToolCall,
+    rejectToolCall,
+    stopExecution,
+  };
 }

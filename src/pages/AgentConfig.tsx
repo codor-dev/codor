@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Save } from "lucide-react";
 import { useI18n } from "../i18n";
-import { getSetting, setSetting } from "../db";
+import { getApiKey, setApiKey as saveApiKey, getSetting, setSetting } from "../db";
 
 export default function AgentConfig() {
   const { t } = useI18n();
@@ -12,7 +12,7 @@ export default function AgentConfig() {
   useEffect(() => {
     async function load() {
       try {
-        const key = await getSetting("openrouter_key");
+        const key = await getApiKey();
         const ctx = await getSetting("user_custom_context");
         if (key) setApiKey(key);
         if (ctx) setUserCtx(ctx);
@@ -28,7 +28,7 @@ export default function AgentConfig() {
     setTimeout(() => setSaved(false), 2500);
 
     try {
-      await setSetting("openrouter_key", apiKey);
+      await saveApiKey(apiKey);
       await setSetting("user_custom_context", userCtx);
     } catch (e) {
       console.error("Failed to save config:", e);
