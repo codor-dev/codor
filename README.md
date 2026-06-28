@@ -1,48 +1,66 @@
 # Codor 🚀
 
-**Codor** is an elite, local-first DevOps AI Infrastructure Agent designed to manage local host environments and remote servers securely. Built as a native desktop application using **Tauri, Rust, React, and TypeScript**, Codor operates directly from your local machine, keeping your credentials, keys, and source code under your complete control.
+Codor is a local-first DevOps agent that manages your servers without your secrets ever leaving your machine.
+
+---
+
+## ## Why I Built This 💡
+
+Codor was born out of necessity. During a critical production server failure with no DevOps engineer available, I had to grant a prototype local AI agent access to my systems. It parsed log files, diagnosed the issues, and orchestrated subserver repairs successfully. The system has run stably ever since. I realized this tool needed to exist—but it had to be designed so that sensitive access credentials and SSH keys would never be sent to a third-party cloud database. Codor was built to bring secure, offline, local-first intelligence to systems operations.
+
+---
+
+## How Secrets Stay Safe 🔒
+
+Unlike typical cloud-based AI assistants that require full access to your environment variables and keys, Codor uses a **Context-Isolated Vault Architecture**:
+* **Metadata Masking**: The Large Language Model (LLM) only sees the descriptive metadata of a credential (e.g., *"[ID: staging-srv] Staging Server"*). It never sees your actual passwords, SSH keys, or API tokens.
+* **Rust-Secure Execution**: When a command needs to be executed, the secure Tauri Rust backend retrieves the credential locally from your SQLite database, establishes the SSH connection, runs the command, and returns the output to the LLM. 
+* **Zero Cloud Leakage**: Your credentials and configuration are saved in a local SQLite database on your machine. No data or secrets ever touch third-party cloud database servers.
 
 ---
 
 ## 🔑 Core Pillars
 
-### 1. Local-First Security Architecture
-Unlike web-hosted platforms, Codor saves all conversation histories, settings, command safety configurations, and API keys inside a **secure local SQLite database** on your machine. No data or credentials ever touch third-party cloud database servers.
-
-### 2. Context-Isolated Vault Credentials
-Connect to your remote servers securely. The **Vault** maps your servers, SSH identities, and GCP/AWS tokens. The LLM only sees the descriptive metadata of a credential (e.g., *"[ID: staging-srv] Webito Staging Server"*). When executing a command, the secure Tauri Rust backend retrieves the credentials locally to run the SSH tunnel. **The LLM never sees your actual secrets.**
-
-### 3. DevOps Specialization Skills Manager
-Inject specialized expertise into Codor's intelligence system. Enable or disable default skills or add custom rules for **Docker, GCP, Kubernetes, Terraform**, and database environments. Enabled skills are injected dynamically into the LLM system prompt.
-
-### 4. Active Safety Command Filters
-Codor protects your environments from dangerous commands. It intercepts terminal calls against a local list of blocked patterns (such as `rm -rf /`, `dd if=`, filesystem formatting `mkfs`, or fork bombs).
-
-### 5. Automated Local Backups
-Codor acts defensively. Before executing commands that modify system settings or delete directories, Codor uses the native `create_backup` tool to compress and archive targets inside `~/.codor_backups/` and logs them in your **Backup History** dashboard.
-
-### 6. Real-Time Token Circle Progress Bar & Limits
-Codor tracks context token usage in real-time. An SVG circular progress ring updates live. If the context window fills up, Codor prevents further API calls and prompts you to **Compact History**, which safely compresses your conversation thread to save context tokens.
+1. **Local-First Architecture**: Your conversation history, settings, and credentials are saved in a secure local SQLite database.
+2. **DevOps Specialization Skills**: Inject custom guidelines and context for Docker, GCP, Kubernetes, and database operations dynamically into the prompt.
+3. **Active Safety Command Filters**: Intercepts dangerous commands (like `rm -rf`, `mkfs`, fork bombs) directly in the secure Rust backend before execution.
+4. **Automated Cross-Platform Backups**: Automatically compresses target files/folders into gzip archives before modifications using native Rust libraries.
+5. **Real-Time Token Tracking**: Displays token usage inside a live SVG progress ring, reminding you to compact history when context gets full.
 
 ---
 
-## 🛠️ Tech Stack
+## 🧠 Supported LLMs
 
-* **Frontend**: React, TypeScript, Tailwind CSS, Lucide icons, Vite.
-* **Backend**: Tauri (Rust), native OS shell interface, SSH agent integrations.
-* **Storage**: Tauri Plugin SQL with SQLite.
+Codor connects to your preferred language models. You can enter your API keys inside the **Settings** tab.
+* **OpenRouter**: Provides access to DeepSeek (e.g., `deepseek-chat`), Claude 3.5 Sonnet, GPT-4o, and other top-tier models.
 
 ---
 
-## 📥 Download & Install
+## 🏁 Quickstart
+
+Once you launch the app, follow this workflow to get started:
+
+1. **Add a Server to the Vault**:
+   Go to the **Vault** tab, click **Add Credential**, and define a label (e.g., `production-db`) and the connection details (e.g., `admin@192.168.1.50` or a secure token).
+2. **Set up Command Filters**:
+   Go to **Settings -> Safety** and verify your blocked patterns.
+3. **Connect and Ask**:
+   Open a **New Chat**, and ask the agent:
+   > *"Check the disk space on server production-db"*
+   The agent will identify the server ID, invoke the secure SSH handler, and print the output.
+
+---
+
+## 📥 Downloads & Security Trust
 
 You can download pre-built installers for macOS and Windows from the [Releases](https://github.com/codor-dev/codor/releases) page.
 
-> [!WARNING]
-> **Unsigned Application Notice**
-> Because Codor is an open-source tool and is not signed with paid Apple or Microsoft developer certificates, your OS will display a security warning when opening the app:
-> - **macOS**: If you see a *"damaged/unidentified developer"* prompt, right-click (or Control-click) the application icon in your Applications folder and select **Open**, then confirm. Alternatively, run: `xattr -cr /Applications/Codor.app`.
-> - **Windows**: If Windows SmartScreen blocks execution, click **More info** on the prompt, then click **Run anyway**.
+### 🛡️ Why Trust Codor?
+* **Local-First & Audit-Ready**: Because Codor is open-source and operates 100% locally, you can inspect the code, audit the network traffic, and verify that no credentials ever leave your machine.
+* **Run from Source**: If you prefer not to use our pre-built installers, you can easily build the binary from source in less than two minutes (see [Local Development](#-local-development) below).
+* **Unsigned Installer Bypass**: Because we do not use paid corporate developer certificates, your OS will display a standard warning when running the installer:
+  - **macOS**: Right-click Codor in your Applications folder and select **Open**, or run: `xattr -cr /Applications/Codor.app`.
+  - **Windows**: Click **More info** on the SmartScreen prompt, then click **Run anyway**.
 
 ---
 
@@ -69,6 +87,14 @@ To run Codor locally on your system, ensure you have **Node.js** (LTS) and the *
 
 ---
 
+## 🛠️ Tech Stack
+
+* **Frontend**: React, TypeScript, Tailwind CSS, Lucide icons, Vite.
+* **Backend**: Tauri (Rust), native OS shell interface, SSH agent integrations.
+* **Storage**: Tauri Plugin SQL with SQLite.
+
+---
+
 ## 🗺️ Future Roadmap
 
 - [ ] **Cloud API Integrations**: Direct credential parsing for AWS CLI, Google Cloud SDK (`gcloud`), and Azure CLI.
@@ -87,4 +113,3 @@ Contributions are what make the open-source community such an amazing place to l
 ## 📄 License
 
 Codor is distributed under the terms of the **GNU General Public License v3.0 (GPL-3.0)**. See the [LICENSE](file:///Users/anette/Desktop/workspace/codor/LICENSE) file for details.
-
