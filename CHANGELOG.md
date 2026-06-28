@@ -12,6 +12,9 @@ All notable changes to Codor are documented here. This project follows
   commands, terminal output, and reasoning (e.g. `203.0.113.45` → `203.0.•.•`).
   This is display-only — stored messages and executed commands keep the real
   address. Toggle it off to reveal full addresses.
+- **Markdown tables render properly in chat.** Tables emitted by the agent are now
+  rendered as real tables instead of raw `| ... |` text, with bold support inside
+  cells.
 
 ## [0.2.1] - 2026-06-28
 

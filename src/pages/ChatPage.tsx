@@ -440,28 +440,95 @@ function ToolResultAccordion({ title, output }: { title: string; output: string 
   );
 }
 
+// Render inline **bold** spans within a line of text.
+function renderInline(text: string, keyPrefix: string): React.ReactNode[] {
+  return text.split(/(\*\*[^*]+\*\*)/g).map((p, j) =>
+    p.startsWith("**") ? <strong key={keyPrefix + j}>{p.slice(2, -2)}</strong> : <span key={keyPrefix + j}>{p}</span>
+  );
+}
+
+function splitRow(line: string): string[] {
+  let s = line.trim();
+  if (s.startsWith("|")) s = s.slice(1);
+  if (s.endsWith("|")) s = s.slice(0, -1);
+  return s.split("|").map((c) => c.trim());
+}
+
+// A GFM table separator row, e.g. `| --- | :--: |`.
+function isTableSeparator(line: string): boolean {
+  const s = line.trim();
+  return s.includes("-") && /^\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?$/.test(s);
+}
+
 function MessageContent({ content }: { content: string }) {
   if (!content) return null;
   const lines = content.split("\n");
   const elements: React.ReactNode[] = [];
-  let inCode = false;
-  let codeLines: string[] = [];
+  let i = 0;
 
-  lines.forEach((line, i) => {
+  while (i < lines.length) {
+    const line = lines[i];
+
+    // Fenced code block
     if (line.startsWith("```")) {
-      if (!inCode) { inCode = true; codeLines = []; }
-      else {
-        elements.push(<pre key={i} className="bg-black/40 rounded-md p-3 overflow-x-auto my-2"><code className="text-green-300 text-xs font-mono">{codeLines.join("\n")}</code></pre>);
-        inCode = false;
+      const codeLines: string[] = [];
+      i++;
+      while (i < lines.length && !lines[i].startsWith("```")) {
+        codeLines.push(lines[i]);
+        i++;
       }
-    } else if (inCode) { codeLines.push(line); }
-    else if (line.startsWith("# ")) { elements.push(<h3 key={i} className="font-bold text-base mt-2">{line.slice(2)}</h3>); }
-    else if (line.startsWith("• ") || line.startsWith("- ")) { elements.push(<li key={i} className="ms-4 list-disc">{line.slice(2)}</li>); }
-    else if (line === "") { elements.push(<div key={i} className="h-2" />); }
-    else {
-      const parts = line.split(/(\*\*[^*]+\*\*)/g);
-      elements.push(<p key={i}>{parts.map((p, j) => p.startsWith("**") ? <strong key={j}>{p.slice(2, -2)}</strong> : p)}</p>);
+      i++; // skip closing fence
+      elements.push(
+        <pre key={i} className="bg-black/40 rounded-md p-3 overflow-x-auto my-2"><code className="text-green-300 text-xs font-mono">{codeLines.join("\n")}</code></pre>
+      );
+      continue;
     }
-  });
+
+    // GFM table: a header row followed by a separator row.
+    if (line.includes("|") && i + 1 < lines.length && isTableSeparator(lines[i + 1])) {
+      const header = splitRow(line);
+      const rows: string[][] = [];
+      i += 2; // skip header + separator
+      while (i < lines.length && lines[i].includes("|") && lines[i].trim() !== "") {
+        rows.push(splitRow(lines[i]));
+        i++;
+      }
+      elements.push(
+        <div key={`tbl-${i}`} className="my-2 overflow-x-auto">
+          <table className="w-full text-xs border-collapse">
+            <thead>
+              <tr>
+                {header.map((h, hi) => (
+                  <th key={hi} className="border border-border bg-muted/50 px-2.5 py-1.5 text-start font-semibold">{renderInline(h, `th${hi}-`)}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r, ri) => (
+                <tr key={ri} className="even:bg-muted/20">
+                  {header.map((_, ci) => (
+                    <td key={ci} className="border border-border px-2.5 py-1.5 align-top">{renderInline(r[ci] ?? "", `td${ri}-${ci}-`)}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+      continue;
+    }
+
+    if (line.startsWith("# ")) {
+      elements.push(<h3 key={i} className="font-bold text-base mt-2">{renderInline(line.slice(2), `h${i}-`)}</h3>);
+    } else if (line.startsWith("• ") || line.startsWith("- ")) {
+      elements.push(<li key={i} className="ms-4 list-disc">{renderInline(line.slice(2), `li${i}-`)}</li>);
+    } else if (line === "") {
+      elements.push(<div key={i} className="h-2" />);
+    } else {
+      elements.push(<p key={i}>{renderInline(line, `p${i}-`)}</p>);
+    }
+    i++;
+  }
+
   return <div className="space-y-1">{elements}</div>;
 }
