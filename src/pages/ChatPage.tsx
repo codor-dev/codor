@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Send, Loader2, Terminal, Paperclip, Archive, Search, ChevronDown, Check } from "lucide-react";
-import { cn } from "../lib/utils";
+import { Send, Loader2, Terminal, Paperclip, Archive, Search, ChevronDown, Check, Shield, ShieldOff } from "lucide-react";
+import { cn, maskIPs } from "../lib/utils";
 import { useCodorRuntime, CodorMessage } from "../hooks/useCodorRuntime";
 import { saveMessage, updateChatTitle } from "../db";
 import { useI18n } from "../i18n";
@@ -26,6 +26,9 @@ export default function ChatPage({ chatId }: ChatProps) {
   // Default to manual approval: every command requires explicit user sign-off
   // before it runs. Users can opt into autopilot per session.
   const [autopilot, setAutopilot] = useState(false);
+  // Mask IP addresses in displayed messages (on by default). Display-only.
+  const [privacy, setPrivacy] = useState(true);
+  const mask = (text: string) => (privacy ? maskIPs(text) : text);
 
   // Model search state
   const [modelSearch, setModelSearch] = useState("");
@@ -139,6 +142,18 @@ export default function ChatPage({ chatId }: ChatProps) {
             </span>
           </div>
 
+          <button
+            onClick={() => setPrivacy((p) => !p)}
+            className={cn(
+              "flex items-center gap-1.5 text-xs px-2 py-1 rounded-md transition-colors cursor-pointer",
+              privacy ? "text-primary hover:bg-accent" : "text-muted-foreground hover:text-foreground hover:bg-accent"
+            )}
+            title={privacy ? t("privacyOn") : t("privacyOff")}
+          >
+            {privacy ? <Shield size={13} /> : <ShieldOff size={13} />}
+            {privacy ? t("privacyOn") : t("privacyOff")}
+          </button>
+
           {messages.length > 6 && (
             <button onClick={handleCompact} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded-md hover:bg-accent transition-colors cursor-pointer" title={t("compactHistory")}>
               <Archive size={13} /> {t("compactHistory")}
@@ -174,10 +189,10 @@ export default function ChatPage({ chatId }: ChatProps) {
                       {msg.reasoning && (
                         <div className="mb-3 text-[11px] text-muted-foreground/75 font-serif italic border-l-2 border-primary/25 pl-3 py-0.5 max-w-[90%] leading-relaxed select-none">
                           <span className="text-[9px] uppercase font-bold font-sans tracking-wide text-primary/70 not-italic block mb-0.5">Thinking Process</span>
-                          {msg.reasoning}
+                          {mask(msg.reasoning || "")}
                         </div>
                       )}
-                      {msg.content && <MessageContent content={msg.content} />}
+                      {msg.content && <MessageContent content={mask(msg.content)} />}
                     </div>
                   </div>
                 )}
@@ -194,7 +209,7 @@ export default function ChatPage({ chatId }: ChatProps) {
                   {/* Code block */}
                   <div className="p-3.5 bg-[#1a1b26] text-zinc-100 font-mono text-[11px] whitespace-pre-wrap overflow-x-auto leading-relaxed">
                     <span className="text-zinc-500/80 select-none mr-2">$</span>
-                    {cmdText}
+                    {mask(cmdText)}
                   </div>
 
                   {pendingApproval?.toolCall.id === msg.toolCalls![0].id && !isRunning && (
@@ -216,7 +231,7 @@ export default function ChatPage({ chatId }: ChatProps) {
             const rawOutput = msg.content.replace("**Tool Output:**\n```\n", "").replace("\n```", "").replace("Tool Output:\n", "");
             return (
               <div key={msg.id} className="max-w-2xl me-auto w-full select-none animate-in fade-in duration-200">
-                <ToolResultAccordion title="Terminal Output" output={rawOutput} />
+                <ToolResultAccordion title="Terminal Output" output={mask(rawOutput)} />
               </div>
             );
           }
@@ -237,10 +252,10 @@ export default function ChatPage({ chatId }: ChatProps) {
                 {msg.reasoning && (
                   <div className="mb-3 text-[11px] text-muted-foreground/75 font-serif italic border-l-2 border-primary/25 pl-3 py-0.5 max-w-[90%] leading-relaxed select-none">
                     <span className="text-[9px] uppercase font-bold font-sans tracking-wide text-primary/70 not-italic block mb-0.5">Thinking Process</span>
-                    {msg.reasoning}
+                    {mask(msg.reasoning || "")}
                   </div>
                 )}
-                {msg.content && <MessageContent content={msg.content} />}
+                {msg.content && <MessageContent content={mask(msg.content)} />}
               </div>
             </div>
           );

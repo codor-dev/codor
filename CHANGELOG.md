@@ -4,6 +4,15 @@ All notable changes to Codor are documented here. This project follows
 [Semantic Versioning](https://semver.org/) and the format of
 [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.2.2] - 2026-06-28
+
+### Added
+- **IP address masking in the chat.** A privacy toggle (on by default) in the chat
+  header masks the last two octets of any IPv4 address shown in messages, tool
+  commands, terminal output, and reasoning (e.g. `203.0.113.45` → `203.0.•.•`).
+  This is display-only — stored messages and executed commands keep the real
+  address. Toggle it off to reveal full addresses.
+
 ## [0.2.1] - 2026-06-28
 
 ### Changed

@@ -1,6 +1,6 @@
 [package]
 name = "codor"
-version = "0.2.1"
+version = "0.2.2"
 description = "Codor — AI infrastructure agent with human-in-the-loop command execution"
 authors = ["Webito Future Tech s.r.o."]
 license = "GPL-3.0-only"
